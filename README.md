@@ -1,67 +1,107 @@
-# IoT Alarm - Aplicación Móvil Android
+# Alarma-Proyecto
 
-Aplicación móvil para el monitoreo y control de dispositivos IoT mediante conexión WiFi/MQTT.
+Aplicacion Android para monitoreo y control de dispositivos IoT, desarrollada para el curso TI3042 - Aplicaciones Moviles para IoT.
 
-## Descripción
+## Stack Tecnologico
 
-Proyecto desarrollado para el curso **TI3042 - Aplicaciones Móviles Android** (Unidad 2). La aplicación permite la interconexión entre dispositivos IoT y un teléfono Android para funciones de monitoreo y control en tiempo real.
-
-## Stack Tecnológico
-
-| Componente | Tecnología |
+| Componente | Tecnologia |
 |------------|------------|
-| **Plataforma** | Android (API 24+) |
-| **IDE** | Android Studio |
-| **Lenguaje** | Kotlin + Jetpack Compose |
-| **Placa IoT** | ESP32 |
-| **Protocolo** | MQTT sobre WiFi |
-| **Broker** | Mosquitto / HiveMQ |
-| **Autenticación** | Firebase Authentication |
-| **Almacenamiento** | SQLite + Firebase |
+| IDE | Android Studio |
+| Lenguaje | Kotlin |
+| UI | Jetpack Compose + Material3 |
+| Base de datos local | SQLite |
+| Placa IoT | ESP32 (v1.2+) |
+| Protocolo MQTT | Eclipse Paho (v1.2+) |
 
-## Funcionalidades
+## Sistema de Autenticacion (v1.1)
 
-- Pantalla de autenticación (login)
-- Dashboard con datos de sensores en tiempo real
-- Panel de control para dispositivos conectados
-- Conexión bidireccional vía MQTT
-- Almacenamiento local y en la nube
+La aplicacion implementa un sistema de autenticacion local utilizando **SQLite**.
 
-## Hardware
+### Metodos de autenticacion evaluados
 
-- **ESP32** con WiFi y Bluetooth LE integrados
-- Sensor de temperatura y humedad (DHT22)
-- Sensor de luz (LDR)
-- Relay para control de dispositivos
+| Opcion | Descripcion | Seleccion |
+|--------|-------------|-----------|
+| **SQLite** | Autenticacion local, sin internet | **SELECCIONADA** |
+| Firebase Authentication | Autenticacion en la nube (Google/Email) | Pendiente v1.3 |
+| API con MySQL | Backend externo | No seleccionada |
+
+### Justificacion de la decision
+
+- **Sin dependencia de servicios externos**: No requiere conexion a internet ni configuracion de servidores
+- **Bajo consumo de recursos**: SQLite esta integrado nativamente en Android
+- **Rapidez de implementacion**: Permite validar el flujo de autenticacion sin configurar Firebase ni backend
+- **Seguridad basica**: Las contrasenas se almacenan con hash SHA-256, nunca en texto plano
+
+### Estructura de la base de datos
+
+```
+Base de datos: alarma_users.db
+Tabla: users
+  - id: INTEGER PRIMARY KEY AUTOINCREMENT
+  - email: TEXT UNIQUE NOT NULL
+  - password: TEXT NOT NULL (hash SHA-256)
+```
+
+### Flujo de autenticacion
+
+```
+App inicia -> LoginScreen
+  |-- Credenciales validas -> DashboardScreen
+  |-- "Registrate" -> RegisterScreen
+       |-- Registro exitoso -> LoginScreen
+       |-- "Ya tengo cuenta" -> LoginScreen
+```
+
+### Seguridad
+
+- **Hash SHA-256**: Las contrasenas se hashean antes de almacenarse
+- **Normalizacion de email**: Se almacenan en minusculas y sin espacios
+- **Validacion de entrada**: Campos obligatorios, formato email, longitud minima de 6 caracteres
+- **Cierre de recursos**: La conexion a la base de datos se cierra despues de cada operacion
 
 ## Estructura del Proyecto
 
 ```
-IoT_Alarm/
-├── app/
-│   ├── build.gradle.kts
-│   └── src/main/
-│       ├── AndroidManifest.xml
-│       └── java/com/example/iotalarm/
-│           ├── MainActivity.kt
-│           └── ui/theme/
-├── build.gradle.kts
-├── gradle/
-│   └── libs.versions.toml
-└── settings.gradle.kts
+app/src/main/java/com/example/alarmaproyecto/
+├── MainActivity.kt                    # Activity principal
+├── data/
+│   ├── UserDatabaseHelper.kt          # SQLite helper
+│   └── UserRepository.kt              # Repositorio de datos
+├── navigation/
+│   └── AppNavigation.kt               # Navegacion entre pantallas
+└── ui/
+    ├── screens/
+    │   ├── LoginScreen.kt             # Pantalla de login
+    │   ├── RegisterScreen.kt          # Pantalla de registro
+    │   └── DashboardScreen.kt         # Dashboard (placeholder)
+    └── theme/
+        ├── Color.kt                   # Colores IoT
+        ├── Theme.kt                   # Tema Material3
+        └── Type.kt                    # Tipografia
 ```
 
-## Requisitos
+## Versiones
 
-- Android Studio (última versión)
-- Java JDK 17
-- Dispositivo Android con USB Debugging habilitado
-- ESP32 para pruebas de hardware
+| Version | Fecha | Descripcion |
+|---------|-------|-------------|
+| v1.0 | Sep 2026 | Template inicial |
+| v1.1 | Sep 2026 | Login con SQLite, navegacion, tema IoT |
+| v1.2 | - | Conexion MQTT con ESP32 |
+| v1.3 | - | Firebase Authentication |
+| v1.4 | - | Almacenamiento y seguridad (TLS/SSL) |
 
-## Autor
+## Como Ejecutar
 
-**Michel** - Estudiante TI3042
+1. Abrir el proyecto en Android Studio
+2. Sincronizar Gradle: **File** > **Sync Project with Gradle Files**
+3. Seleccionar dispositivo o emulador
+4. Ejecutar: clic en boton **Run** (o `Shift + F10`)
 
-## Licencia
+## Criterios de Evaluacion (TI3042 Unidad 2)
 
-Proyecto académico - Curso TI3042
+| Criterio | Estado |
+|----------|--------|
+| 2.1.1 Herramientas de desarrollo movil | Completado |
+| 2.1.2 Conexiones inalambricas | Pendiente (v1.2) |
+| 2.1.3 Seguridad ISO 27400 | En progreso |
+| 2.1.4 Interconexion entre dispositivos | Pendiente (v1.2) |

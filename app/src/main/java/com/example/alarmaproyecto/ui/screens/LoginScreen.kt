@@ -1,4 +1,4 @@
-package com.example.iotalarm.ui.screens
+package com.example.alarmaproyecto.ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
@@ -12,6 +12,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -19,22 +20,30 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.iotalarm.ui.theme.IoTPrimary
+import com.example.alarmaproyecto.data.UserRepository
+import com.example.alarmaproyecto.ui.theme.IoTPrimary
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(
-    onLoginSuccess: () -> Unit = {}
+    onLoginSuccess: (String) -> Unit = {},
+    onNavigateToRegister: () -> Unit = {}
 ) {
+    val context = LocalContext.current
+    val userRepository = remember { UserRepository(context) }
+    val scope = rememberCoroutineScope()
+
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf("") }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("IoT Alarm") },
+                title = { Text("Alarma Proyecto") },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = IoTPrimary,
                     titleContentColor = Color.White
@@ -51,7 +60,7 @@ fun LoginScreen(
             verticalArrangement = Arrangement.Center
         ) {
             Text(
-                text = "IoT Alarm",
+                text = "Alarma Proyecto",
                 fontSize = 32.sp,
                 fontWeight = FontWeight.Bold,
                 color = IoTPrimary,
@@ -68,7 +77,10 @@ fun LoginScreen(
 
             OutlinedTextField(
                 value = email,
-                onValueChange = { email = it },
+                onValueChange = {
+                    email = it
+                    errorMessage = ""
+                },
                 label = { Text("Correo Electrónico") },
                 leadingIcon = {
                     Icon(Icons.Default.Email, contentDescription = "Email")
@@ -84,7 +96,10 @@ fun LoginScreen(
 
             OutlinedTextField(
                 value = password,
-                onValueChange = { password = it },
+                onValueChange = {
+                    password = it
+                    errorMessage = ""
+                },
                 label = { Text("Contraseña") },
                 leadingIcon = {
                     Icon(Icons.Default.Lock, contentDescription = "Password")
@@ -109,10 +124,27 @@ fun LoginScreen(
                     .padding(bottom = 24.dp)
             )
 
+            if (errorMessage.isNotEmpty()) {
+                Text(
+                    text = errorMessage,
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+            }
+
             Button(
                 onClick = {
                     isLoading = true
-                    onLoginSuccess()
+                    scope.launch {
+                        val success = userRepository.login(email, password)
+                        isLoading = false
+                        if (success) {
+                            onLoginSuccess(email)
+                        } else {
+                            errorMessage = "Correo o contraseña incorrectos"
+                        }
+                    }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -132,7 +164,7 @@ fun LoginScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             TextButton(
-                onClick = { }
+                onClick = onNavigateToRegister
             ) {
                 Text(
                     "¿No tienes cuenta? Regístrate",

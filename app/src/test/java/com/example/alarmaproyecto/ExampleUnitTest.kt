@@ -1,4 +1,4 @@
-package com.example.iotalarm
+package com.example.alarmaproyecto
 
 import org.junit.Test
 

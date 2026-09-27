@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "IoT Alarm"
+rootProject.name = "Alarma Proyecto"
 include(":app")

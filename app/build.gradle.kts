@@ -4,13 +4,13 @@ plugins {
 }
 
 android {
-    namespace = "com.example.iotalarm"
+    namespace = "com.example.alarmaproyecto"
     compileSdk {
         version = release(37)
     }
 
     defaultConfig {
-        applicationId = "com.example.iotalarm"
+        applicationId = "com.example.alarmaproyecto"
         minSdk = 24
         targetSdk = 37
         versionCode = 1
@@ -46,8 +46,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.navigation.compose)
-    implementation(libs.org.eclipse.paho.android.service)
-    implementation(libs.org.eclipse.paho.client.mqttv3)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
