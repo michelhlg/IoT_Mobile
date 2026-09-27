@@ -1,4 +1,4 @@
-package com.example.iotalarm.ui.theme
+package com.example.alarmaproyecto.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -35,7 +35,7 @@ private val DarkColorScheme = darkColorScheme(
 )
 
 @Composable
-fun IoTAlarmTheme(
+fun AlarmaProyectoTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit

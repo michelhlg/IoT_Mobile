@@ -1,0 +1,279 @@
+/*
+ * Alarma IoT - Arduino UNO + HC-05 + PIR + 2 Relés
+ * 
+ * Conexiones:
+ *   HC-05 TX  -> Pin 10 (SoftwareSerial RX)
+ *   HC-05 RX  -> Pin 11 (SoftwareSerial TX)
+ *   PIR OUT   -> Pin 2  (Interrupción)
+ *   Relé 1    -> Pin 7  (Sirena)
+ *   Relé 2    -> Pin 8  (Luz)
+ * 
+ * Protocolo Bluetooth:
+ *   Arduino -> App: SENSOR:motion:1, STATUS:siren:1, etc.
+ *   App -> Arduino: CMD:siren:1, CMD:arm:0, etc.
+ */
+
+#include <SoftwareSerial.h>
+
+// === PINES ===
+#define BT_RX       10    // HC-05 TX conectado a Arduino pin 10
+#define BT_TX       11    // HC-05 RX conectado a Arduino pin 11
+#define PIR_PIN     2     // Sensor PIR (interrupción INT0)
+#define RELAY_1     7     // Relé 1 - Sirena
+#define RELAY_2     8     // Relé 2 - Luz
+
+// === ESTADO DEL SISTEMA ===
+bool sistemaArmado = false;
+bool sirenaEncendida = false;
+bool luzEncendida = false;
+bool movimientoDetectado = false;
+bool estadoMovimientoAnterior = false;
+
+// === NIVEL DE ACTIVACIÓN DE RELÉS ===
+// Módulo de BAJO nivel: LOW = bobina energizada (verde), HIGH = apagada (rojo)
+const int RELAY_ON = LOW;
+const int RELAY_OFF = HIGH;
+
+// === BLUETOOTH ===
+SoftwareSerial bluetooth(BT_RX, BT_TX);
+
+// === TIMING ===
+unsigned long ultimoEnvioMovimiento = 0;
+const unsigned long INTERVALO_ENVIO = 500; // Enviar estado cada 500ms max
+unsigned long ultimoParpadeo = 0;
+bool estadoLed = false;
+
+// === RETARDO DE APAGADO ===
+const unsigned long RETARDO_APAGADO = 10000; // 10 segundos antes de apagar relés
+unsigned long inicioSinMovimiento = 0;
+bool esperandoApagado = false;
+
+void setup() {
+  // Serial para debug (monitor serial)
+  Serial.begin(9600);
+  Serial.setTimeout(50); // No bloquear si llega datos sin salto de línea
+  
+  // Bluetooth
+  bluetooth.begin(9600);
+  bluetooth.setTimeout(50); // Evita bloqueos de 1s con basura del HC-05
+  
+  // Pines de salida
+  pinMode(RELAY_1, OUTPUT);
+  pinMode(RELAY_2, OUTPUT);
+  
+  // Pin de entrada
+  pinMode(PIR_PIN, INPUT);
+  
+  // Estado inicial: todo apagado
+  digitalWrite(RELAY_1, RELAY_OFF);
+  digitalWrite(RELAY_2, RELAY_OFF);
+  
+  // Mensaje de inicio
+  Serial.println(F("=== Alarma IoT Iniciada ==="));
+  Serial.println(F("Sistema desarmado. Escriba arm/disarm/status/relayon/relayoff"));
+  
+  // Enviar estado inicial al conectarse
+  delay(1000);
+  enviarEstado();
+}
+
+void loop() {
+  // === LEER COMANDOS BLUETOOTH ===
+  if (bluetooth.available()) {
+    String comando = bluetooth.readStringUntil('\n');
+    comando.trim();
+    if (comando.length() > 0) {
+      procesarComando(comando);
+    }
+  }
+  
+  // === LEER COMANDOS SERIALES (prueba sin Bluetooth) ===
+  if (Serial.available()) {
+    String cmdSerial = Serial.readStringUntil('\n');
+    cmdSerial.trim();
+    if (cmdSerial == "arm") {
+      procesarComando("CMD:arm:1");
+    } else if (cmdSerial == "disarm") {
+      procesarComando("CMD:arm:0");
+    } else if (cmdSerial == "status") {
+      procesarComando("CMD:status");
+    } else if (cmdSerial == "relayon") {
+      digitalWrite(RELAY_1, RELAY_ON);
+      digitalWrite(RELAY_2, RELAY_ON);
+      Serial.println(F("[SERIAL] Relés forzados ON (debe encender VERDE)"));
+    } else if (cmdSerial == "relayoff") {
+      digitalWrite(RELAY_1, RELAY_OFF);
+      digitalWrite(RELAY_2, RELAY_OFF);
+      Serial.println(F("[SERIAL] Relés forzados OFF (rojo = alimentación)"));
+    } else if (cmdSerial.length() > 0) {
+      Serial.println(F("[SERIAL] Comando no reconocido (arm/disarm/status/relayon/relayoff)"));
+    }
+  }
+  
+  // === LEER SENSOR PIR ===
+  bool movimientoActual = digitalRead(PIR_PIN) == HIGH;
+  
+  // Detectar cambio de estado
+  if (movimientoActual != estadoMovimientoAnterior) {
+    estadoMovimientoAnterior = movimientoActual;
+    
+    if (movimientoActual) {
+      // Movimiento detectado
+      Serial.println(F("[PIR] Movimiento DETECTADO"));
+      bluetooth.println(F("SENSOR:motion:1"));
+      movimientoDetectado = true;
+      
+      // Si el sistema está armado, activar alarmas
+      if (sistemaArmado) {
+        activarSirena();
+        activarLuz();
+        bluetooth.println(F("ALERT:motion:1"));
+        Serial.println(F("[ALERTA] Sistema armado - Alarmas activadas"));
+        esperandoApagado = false; // Cancelar apagado pendiente si vuelve el movimiento
+      }
+    } else {
+      // Sin movimiento
+      Serial.println(F("[PIR] Sin movimiento"));
+      bluetooth.println(F("SENSOR:motion:0"));
+      movimientoDetectado = false;
+      
+      // Si estaba armado, programar apagado de relés tras el retardo
+      if (sistemaArmado && (sirenaEncendida || luzEncendida)) {
+        esperandoApagado = true;
+        inicioSinMovimiento = millis();
+        Serial.println(F("[ALERTA] Sin movimiento - apagando relés en 10 s..."));
+      }
+    }
+  }
+  
+  // === APAGADO PROGRAMADO DE RELÉS ===
+  if (esperandoApagado) {
+    if (!sistemaArmado || (!sirenaEncendida && !luzEncendida)) {
+      esperandoApagado = false; // Se desarmó o ya se apagaron
+    } else if (millis() - inicioSinMovimiento >= RETARDO_APAGADO) {
+      esperandoApagado = false;
+      unsigned long transcurrido = (millis() - inicioSinMovimiento) / 1000;
+      apagarSirena();
+      apagarLuz();
+      Serial.print(F("[ALERTA] Movimiento terminó - relés apagados (transcurrido: "));
+      Serial.print(transcurrido);
+      Serial.println(F(" s)"));
+    }
+  }
+  
+  // === ENVIAR ESTADO PERIÓDICAMENTE ===
+  if (millis() - ultimoEnvioMovimiento > INTERVALO_ENVIO) {
+    ultimoEnvioMovimiento = millis();
+    enviarEstadoSensores();
+  }
+  
+  delay(50); // Pequeña pausa para estabilidad
+}
+
+// === PROCESAR COMANDOS RECIBIDOS ===
+void procesarComando(String cmd) {
+  Serial.print(F("[BT] Comando recibido: "));
+  Serial.println(cmd);
+  
+  // CMD:siren:1 o CMD:siren:0
+  if (cmd.startsWith("CMD:siren:")) {
+    int valor = cmd.charAt(10) - '0';
+    if (valor == 1) {
+      activarSirena();
+    } else {
+      apagarSirena();
+    }
+  }
+  // CMD:light:1 o CMD:light:0
+  else if (cmd.startsWith("CMD:light:")) {
+    int valor = cmd.charAt(10) - '0';
+    if (valor == 1) {
+      activarLuz();
+    } else {
+      apagarLuz();
+    }
+  }
+  // CMD:arm:1 o CMD:arm:0
+  else if (cmd.startsWith("CMD:arm:")) {
+    int valor = cmd.charAt(8) - '0';
+    if (valor == 1) {
+      sistemaArmado = true;
+      Serial.println(F("[SISTEMA] ARMADO"));
+      bluetooth.println(F("STATUS:armed:1"));
+    } else {
+      sistemaArmado = false;
+      apagarSirena();
+      apagarLuz();
+      Serial.println(F("[SISTEMA] DESARMADO"));
+      bluetooth.println(F("STATUS:armed:0"));
+    }
+  }
+  // CMD:status
+  else if (cmd == "CMD:status") {
+    enviarEstado();
+  }
+  // Comando no reconocido
+  else {
+    Serial.println(F("[BT] Comando no reconocido"));
+  }
+}
+
+// === CONTROL DE ALARMAS ===
+void activarSirena() {
+  digitalWrite(RELAY_1, RELAY_ON);
+  sirenaEncendida = true;
+  Serial.println(F("[RELÉ 1] Sirena ON"));
+  bluetooth.println(F("STATUS:siren:1"));
+}
+
+void apagarSirena() {
+  digitalWrite(RELAY_1, RELAY_OFF);
+  sirenaEncendida = false;
+  Serial.println(F("[RELÉ 1] Sirena OFF"));
+  bluetooth.println(F("STATUS:siren:0"));
+}
+
+void activarLuz() {
+  digitalWrite(RELAY_2, RELAY_ON);
+  luzEncendida = true;
+  Serial.println(F("[RELÉ 2] Luz ON"));
+  bluetooth.println(F("STATUS:light:1"));
+}
+
+void apagarLuz() {
+  digitalWrite(RELAY_2, RELAY_OFF);
+  luzEncendida = false;
+  Serial.println(F("[RELÉ 2] Luz OFF"));
+  bluetooth.println(F("STATUS:light:0"));
+}
+
+// === ENVIAR ESTADO COMPLETO ===
+void enviarEstado() {
+  String msg;
+  msg = "STATUS:armed:"; msg += sistemaArmado ? "1" : "0"; bluetooth.println(msg);
+  msg = "STATUS:siren:"; msg += sirenaEncendida ? "1" : "0"; bluetooth.println(msg);
+  msg = "STATUS:light:"; msg += luzEncendida ? "1" : "0"; bluetooth.println(msg);
+  msg = "SENSOR:motion:"; msg += movimientoDetectado ? "1" : "0"; bluetooth.println(msg);
+}
+
+// === ENVIAR ESTADO DE SENSORES ===
+void enviarEstadoSensores() {
+  // Solo enviar si hay cambio o periódicamente
+  static bool ultimoEstadoArmed = false;
+  static bool ultimoEstadoSiren = false;
+  static bool ultimoEstadoLight = false;
+  String msg;
+  
+  if (sistemaArmado != ultimoEstadoArmed) {
+    ultimoEstadoArmed = sistemaArmado;
+    msg = "STATUS:armed:"; msg += sistemaArmado ? "1" : "0"; bluetooth.println(msg);
+  }
+  if (sirenaEncendida != ultimoEstadoSiren) {
+    ultimoEstadoSiren = sirenaEncendida;
+    msg = "STATUS:siren:"; msg += sirenaEncendida ? "1" : "0"; bluetooth.println(msg);
+  }
+  if (luzEncendida != ultimoEstadoLight) {
+    ultimoEstadoLight = luzEncendida;
+    msg = "STATUS:light:"; msg += luzEncendida ? "1" : "0"; bluetooth.println(msg);
+  }
+}

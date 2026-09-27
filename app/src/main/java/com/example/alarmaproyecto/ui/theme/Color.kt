@@ -1,4 +1,4 @@
-package com.example.iotalarm.ui.theme
+package com.example.alarmaproyecto.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
