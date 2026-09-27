@@ -123,6 +123,17 @@ CMD:status             (solicitar estado)
 | Fase | Estado | Notas |
 |------|--------|-------|
 | Fase 1 - Hardware | Completado | Firmware en `arduino/alarma_bt/alarma_bt.ino` |
-| Fase 2 - App Android | Completado | `BluetoothConnection`, `AlarmViewModel`, notificaciones |
-| Fase 3 - Integracion | En progreso | Bloqueado por emparejamiento del modulo (HC-05 `PAGE_TIMEOUT` / PIN desconocido del HC-06) |
+| Fase 2 - App Android | Completado | `BluetoothConnection` (SPP + BLE), `AlarmViewModel`, notificaciones |
+| Fase 3 - Integracion | **Validado en hardware** | Flujo completo: armar -> PIR -> sirena+luz ON -> auto-off 10 s -> notificacion al telefono |
+
+### Transporte (v1.3)
+
+La app soporta dos transportes y decide segun el tipo de dispositivo encontrado:
+
+- **Clasico SPP (RFCOMM)**: HC-05. Si no esta vinculado, `createBond()` dispara el PIN (1234/0000).
+- **BLE GATT (FFE0/FFE1)**: modulos seriales tipo HM-10 (no requiere PIN).
+
+### Pendiente
+
+- Modulo rotulado "HC-06 ALARMA": resulto ser **BLE tipo HM-10** con UART defectuoso. Ver `docs/pendientes.md`.
 
