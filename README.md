@@ -12,7 +12,7 @@ Aplicacion Android para monitoreo y control de dispositivos IoT, desarrollada pa
 | Navegacion | Navigation Compose |
 | Base de datos local | SQLite |
 | Placa IoT | Arduino UNO |
-| Conectividad | Bluetooth clasico SPP (modulo HC-05 / HC-06) |
+| Conectividad | Bluetooth clasico SPP (HC-05) y BLE GATT (modulos seriales tipo HM-10) |
 | Sensores/actuadores | PIR (movimiento) + modulo de 2 reles (sirena y luz) |
 
 > Nota de alcance: el plan inicial contemplaba ESP32 + WiFi/MQTT + Firebase (ver `../analisis_proyecto_iot.md`). La implementacion se pivoteo a **Arduino UNO + Bluetooth SPP** por disponibilidad de hardware y para cumplir el criterio de conexion inalambrica. El detalle del hardware esta en `docs/plan_implementacion.md` y `docs/diagrama_conexiones.md`.
@@ -67,12 +67,20 @@ App inicia -> LoginScreen
 
 ## Conexion IoT por Bluetooth (v1.2)
 
-La app se comunica con el Arduino mediante **Bluetooth clasico (SPP)** usando la UUID estandar `00001101-0000-1000-8000-00805F9B34FB`.
+La app soporta **dos transportes** y elige el adecuado segun el tipo de dispositivo encontrado:
 
-- `BluetoothConnection.kt` es un singleton que expone el estado (`StateFlow`) y las lineas recibidas (`SharedFlow`).
-- La conexion intenta 6 variantes (secure, insecure y canal fijo 1 por reflexion) porque algunos modulos HC-05 rechazan la primera conexion.
-- La app solo lista **dispositivos ya emparejados**; el emparejamiento se hace en Ajustes > Bluetooth (PIN tipico `1234` o `0000`).
+- **Clasico SPP (RFCOMM)** para el HC-05 (UUID estandar `00001101-0000-1000-8000-00805F9B34FB`).
+- **BLE GATT** para modulos seriales tipo HM-10 (servicio `FFE0` / caracteristica `FFE1`).
+
+Detalles:
+
+- `BluetoothConnection.kt` es un singleton que expone el estado (`StateFlow`) y las lineas recibidas (`SharedFlow`); escanea en **clasico + BLE** a la vez.
+- En clasico intenta 6 variantes (secure, insecure y canal fijo 1 por reflexion) porque algunos modulos HC-05 rechazan la primera conexion. Si no esta vinculado, `createBond()` dispara el emparejamiento (PIN tipico `1234` o `0000`).
+- En BLE conecta por GATT, habilita notificaciones en `FFE1` y **no requiere PIN**.
 - El `AlarmViewModel` parsea el protocolo y dispara una **notificacion** cuando llega `ALERT:motion:1`.
+- Estado validado en hardware: la app arma el sistema, el PIR activa sirena+luz y se apagan solos a los 10 s sin movimiento; llega la notificacion al telefono.
+
+> Nota: el modulo rotulado "HC-06 ALARMA" resulto ser **BLE tipo HM-10** y su UART presentaba fallas; los pendientes estan en `docs/pendientes.md`.
 
 ### Protocolo de comunicacion
 
@@ -99,7 +107,7 @@ IoT_Alarm/
 ├── app/src/main/java/com/example/alarmaproyecto/
 │   ├── MainActivity.kt                    # Activity principal
 │   ├── bluetooth/
-│   │   └── BluetoothConnection.kt         # Conexion SPP (singleton)
+│   │   └── BluetoothConnection.kt         # Conexion SPP + BLE (singleton)
 │   ├── data/
 │   │   ├── UserDatabaseHelper.kt          # SQLite helper
 │   │   └── UserRepository.kt              # Repositorio de datos
@@ -121,11 +129,16 @@ IoT_Alarm/
 │       └── viewmodel/
 │           └── AlarmViewModel.kt          # Estado compartido + protocolo
 ├── arduino/
-│   └── alarma_bt/
-│       └── alarma_bt.ino                  # Firmware Arduino UNO
+│   ├── alarma_bt/
+│   │   └── alarma_bt.ino                  # Firmware Arduino UNO
+│   ├── at_bridge/
+│   │   └── at_bridge.ino                  # Puente AT con barrido de baudios (diagnostico)
+│   └── bridge_simple/
+│       └── bridge_simple.ino              # Puente simple BLE/UART (diagnostico)
 └── docs/
     ├── plan_implementacion.md             # Arquitectura y protocolo
-    └── diagrama_conexiones.md             # Cableado del circuito
+    ├── diagrama_conexiones.md             # Cableado del circuito
+    └── pendientes.md                      # HC-06 BLE pendiente / notas
 ```
 
 ## Versiones
@@ -135,23 +148,25 @@ IoT_Alarm/
 | v1.0 | Sep 2026 | Template inicial |
 | v1.1 | Sep 2026 | Login con SQLite, navegacion, tema IoT |
 | v1.2 | Sep 2026 | Conexion Bluetooth SPP, dashboard/control en tiempo real, notificaciones, firmware Arduino |
-| v1.3 | - | Firebase Authentication |
-| v1.4 | - | Almacenamiento y seguridad (cifrado, ISO 27400) |
+| v1.3 | Sep 2026 | Bluetooth dual (SPP + BLE), escaneo/emparejamiento desde la app, flujo completo validado en hardware |
+| v1.4 | - | Firebase Authentication |
+| v1.5 | - | Almacenamiento y seguridad (cifrado, ISO 27400) |
 
 ## Como Ejecutar
 
 1. Abrir el proyecto en Android Studio
 2. Sincronizar Gradle: **File** > **Sync Project with Gradle Files**
-3. Emparejar el modulo HC-05/HC-06 en **Ajustes > Bluetooth** del telefono (PIN `1234` o `0000`)
-4. Cargar `arduino/alarma_bt/alarma_bt.ino` en el Arduino UNO desde el IDE de Arduino
+3. Cargar `arduino/alarma_bt/alarma_bt.ino` en el Arduino UNO (ver `docs/diagrama_conexiones.md`)
+4. Conectar el modulo Bluetooth al Arduino (TX->D10, RX->D11, VCC->5V, GND->GND)
 5. Seleccionar dispositivo o emulador y ejecutar (**Run** / `Shift + F10`)
-6. Iniciar sesion y en el **Dashboard** conectar al modulo Bluetooth
+6. Iniciar sesion -> **Dashboard** -> **"Buscar modulo Bluetooth (HC-05 / HC-06)"** -> tocar el modulo
+   (el HC-05 clasico pide PIN `1234`; los modulos BLE tipo HM-10 conectan sin PIN)
 
 ## Criterios de Evaluacion (TI3042 Unidad 2)
 
 | Criterio | Estado |
 |----------|--------|
 | 2.1.1 Herramientas de desarrollo movil | Completado |
-| 2.1.2 Conexiones inalambricas | Completado (Bluetooth SPP) |
+| 2.1.2 Conexiones inalambricas | Completado (Bluetooth SPP + BLE) |
 | 2.1.3 Seguridad ISO 27400 | En progreso (hash SHA-256; falta salt y cifrado) |
 | 2.1.4 Interconexion entre dispositivos | En progreso (app <-> Arduino/HC-05; pendiente definir Android <-> Android) |
